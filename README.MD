@@ -116,4 +116,4 @@ manage.py
 db.sqlite3 ← 数据库
 .venv      ← 虚拟环境 -->
 
-1111111111111
+# 临时切换node.js（当前终端生效）$env:PATH = "D:\LJX\node-v24;" + $env:PATH
