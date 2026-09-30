@@ -94,13 +94,13 @@ cd D:\projects\传签系统
 mkdir backend
 cd backend                      # 现在你在：传签系统\backend\
 
-# 第3步：创建虚拟环境（注意最后有个点）
+# 第3步：创建虚拟环境（注意最后有个点）（换电脑需要）
 python -m venv .venv
 
-# 第4步：激活虚拟环境
+# 第4步：激活虚拟环境（换电脑需要）
 .venv\Scripts\activate          # 激活后命令行前面出现 (.venv)
 
-# 第5步：装依赖
+# 第5步：装依赖(换电脑需要)
 pip install django djangorestframework djangorestframework-simplejwt django-cors-headers
 
 # 第6步：创建 Django 项目（注意最后有个点）
