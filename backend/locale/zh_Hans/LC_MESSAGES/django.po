@@ -1,0 +1,100 @@
+msgid ""
+msgstr ""
+"Project-Id-Version: label-automation 1.0\n"
+"Content-Type: text/plain; charset=UTF-8\n"
+"Content-Transfer-Encoding: 8bit\n"
+"Language: zh-Hans\n"
+"Plural-Forms: nplurals=1; plural=0;\n"
+
+msgid "A supervisor cannot report to another supervisor."
+msgstr "主管不能向其他主管汇报。"
+
+msgid "Staff members must have a supervisor."
+msgstr "职员必须指定主管。"
+
+msgid "The selected supervisor has no profile."
+msgstr "所选主管尚未配置用户档案。"
+
+msgid "Supervisor must belong to the same department."
+msgstr "主管必须属于同一部门。"
+
+msgid "The selected user is not a supervisor."
+msgstr "所选用户不是主管。"
+
+msgid "A password is required for a new user."
+msgstr "新用户必须设置密码。"
+
+msgid "The initial handler must belong to the Label department."
+msgstr "初始处理人必须属于 Label 室。"
+
+msgid "Your account has no department profile."
+msgstr "当前账号尚未配置部门档案。"
+
+msgid "Only Business department users can upload packing lists."
+msgstr "只有业务端用户可以上传装箱单。"
+
+msgid "Only Label department users can submit applications."
+msgstr "只有 Label 室用户可以提交申请。"
+
+msgid "The handler must belong to the next department."
+msgstr "处理人必须属于下一环节对应部门。"
+
+msgid "No pending Label application task exists."
+msgstr "没有待处理的 Label 申请任务。"
+
+msgid "The Label application task is not current."
+msgstr "当前流程不在 Label 申请环节。"
+
+msgid "This Label task is assigned to another user."
+msgstr "此 Label 任务已分派给其他用户。"
+
+msgid "Only supervisors can view department-wide tasks."
+msgstr "只有主管可以查看本部门全部待办。"
+
+msgid "You cannot act on behalf of another user for your own task."
+msgstr "处理分派给自己的任务时，不能指定代办对象。"
+
+msgid "This approval task is assigned to another user."
+msgstr "此审批任务已分派给其他用户。"
+
+msgid "Select the assigned staff member when processing on their behalf."
+msgstr "代下属处理时，请选择该任务的被分派职员。"
+
+msgid "You can only act on behalf of your direct reports."
+msgstr "只能代直属下属处理。"
+
+msgid "The assigned user must belong to your department."
+msgstr "被代办人必须属于你的部门。"
+
+msgid "This approval task is no longer pending."
+msgstr "此审批任务已不再处于待处理状态。"
+
+msgid "Submit the Label application to complete this task."
+msgstr "请提交 Label 申请表以完成此任务。"
+
+msgid "A handler in the next department is required."
+msgstr "必须指定下一部门的处理人。"
+
+msgid "Choose a previously completed stage."
+msgstr "请选择之前已完成的环节。"
+
+msgid "The target stage must have been completed earlier in this flow."
+msgstr "打回目标必须是本流程中之前已完成的环节。"
+
+msgid "No previous handler is available for reassignment."
+msgstr "找不到可重新分派的上一环节处理人。"
+
+msgid "Please fill in all fields"
+msgstr "请填写所有字段。"
+
+msgid "Old password is incorrect"
+msgstr "旧密码错误。"
+
+msgid "The two passwords do not match"
+msgstr "两次输入的密码不一致。"
+
+msgid "New password cannot be the same as old password"
+msgstr "新密码不能与旧密码相同。"
+
+msgid "Password changed successfully"
+msgstr "密码修改成功。"
