@@ -3,21 +3,25 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessage } from 'element-plus'
 import type { UploadFile } from 'element-plus'
 import { useI18n } from 'vue-i18n'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
+import type { UploadInstance, UploadRawFile } from 'element-plus'
+import FilePreview from '../components/FilePreview.vue'
+import LabelApplicationSummary from '../components/LabelApplicationSummary.vue'
 import api from '../services/api'
 import { useSessionStore } from '../stores/session'
 
 interface Department { id: number; code: string; name: string; name_zh: string }
 interface PermissionGroup { id: number; name: string }
 interface Person { id: number; username: string; display_name: string; role?: string; department?: Department }
-interface PackingList { id: number; order_no: string; machine_type: string; file: string; status: string; created_at: string; uploader: Person; current_node?: string; flow_status?: string }
+interface PackingList { id: number; order_no: string; machine_type: string; file: string; file_name?: string; file_url?: string; file_type?: string; status: string; created_at: string; uploader: Person; current_node?: string; flow_status?: string }
 interface ApprovalNode { id: number; stage: string; handler: Person | null; actual_handler: Person | null; status: string; comment: string; reject_to: string; created_at: string; approved_at: string | null }
-interface Flow { id: number; current_node: string; status: string; packing_list: PackingList; nodes: ApprovalNode[]; label_application: { is_new_model: boolean; form_data: Record<string, unknown> } | null }
+interface Flow { id: number; current_node: string; status: string; packing_list: PackingList; nodes: ApprovalNode[]; label_application: { applicant?: Person; is_new_model: boolean; form_data: Record<string, unknown>; label_sample_images: { path: string; url: string; file_name: string }[]; created_at: string } | null }
 interface Task extends ApprovalNode { flow_id: number; order_no: string; machine_type: string }
 
 const { t, locale } = useI18n()
 const session = useSessionStore()
 const route = useRoute()
+const router = useRouter()
 const departments = ref<Department[]>([])
 const managedUsers = ref<Person[]>([])
 const permissionGroups = ref<PermissionGroup[]>([])
@@ -34,6 +38,7 @@ const departmentScope = ref(false)
 const uploadVisible = ref(false)
 const uploadBusy = ref(false)
 const selectedFile = ref<File | null>(null)
+const uploadRef = ref<UploadInstance>()
 const uploadForm = reactive({ order_no: '', machine_type: '', label_handler_id: '' as string | number })
 const detailVisible = ref(false)
 const flow = ref<Flow | null>(null)
@@ -77,6 +82,12 @@ const availableReturnStages = computed(() => {
 const activeFlows = computed(() => packingLists.value.filter((item) => !['completed', 'rejected'].includes(item.status)).length)
 const completedFlows = computed(() => packingLists.value.filter((item) => item.status === 'completed').length)
 const departmentCode = computed(() => session.user?.department?.code.toLowerCase() || '')
+const workbenchPackingLists = computed(() => {
+  if (['label', 'label_room'].includes(departmentCode.value)) {
+    return packingLists.value.filter((item) => item.status === 'pending' && item.current_node === 'label_apply')
+  }
+  return packingLists.value
+})
 const isAdmin = computed(() => Boolean(session.user?.is_staff))
 
 function departmentId(code: string) {
@@ -130,6 +141,10 @@ function userName(person?: Person | null) {
 }
 
 function openListRow(row: PackingList) {
+  if (row.current_node === 'label_apply' && ['label', 'label_room'].includes(departmentCode.value)) {
+    router.push({ name: 'label-apply', query: { packing_list_id: String(row.id) } })
+    return
+  }
   openFlow(row.id)
 }
 
@@ -253,8 +268,31 @@ async function openUpload() {
   }
 }
 
+function validatePackingFile(file: File | UploadRawFile) {
+  const allowedExtensions = ['.jpg', '.jpeg', '.png', '.doc', '.docx', '.pdf']
+  const extension = file.name.slice(file.name.lastIndexOf('.')).toLowerCase()
+  if (!allowedExtensions.includes(extension)) {
+    ElMessage.error(t('upload.formatNotSupported'))
+    return false
+  }
+  if (file.size > 10 * 1024 * 1024) {
+    ElMessage.error(t('upload.sizeExceeded'))
+    return false
+  }
+  return true
+}
+
+function beforePackingUpload(file: UploadRawFile) {
+  return validatePackingFile(file)
+}
+
 function onFileChange(file: UploadFile) {
-  selectedFile.value = file.raw || null
+  if (!file.raw || !validatePackingFile(file.raw)) {
+    selectedFile.value = null
+    uploadRef.value?.clearFiles()
+    return
+  }
+  selectedFile.value = file.raw
 }
 
 async function submitUpload() {
@@ -289,13 +327,25 @@ async function openFlow(flowId: number) {
   comment.value = ''
   try {
     const { data } = await api.get<Flow>(`/approval/flow/${flowId}/`)
+    if (data.current_node === 'label_apply' && ['label', 'label_room'].includes(departmentCode.value)) {
+      detailVisible.value = false
+      await router.push({ name: 'label-apply', query: { packing_list_id: String(data.packing_list.id) } })
+      return
+    }
     flow.value = data
     newModel.value = data.label_application?.is_new_model || false
     applicationData.value = data.label_application ? JSON.stringify(data.label_application.form_data, null, 2) : ''
     const nextStage = nextStageFor(data.current_node)
+    if (data.current_node === 'label_apply') {
+      seedApplicationData()
+    }
     if (nextStage) await loadUsers(normalizeStageDepartment(nextStage))
     if (isSupervisor.value && currentPendingNode.value?.handler?.id !== session.user?.id) {
       await loadUsers(departmentCode.value, session.user?.id)
+    }
+    const [firstPerson] = people.value
+    if (data.current_node === 'label_apply' && firstPerson) {
+      nextHandlerId.value = firstPerson.id
     }
   } catch (error) {
     detailVisible.value = false
@@ -311,6 +361,40 @@ function nextStageFor(stage: string) {
   if (stage === 'qc') return 'ie'
   if (stage === 'ie') return 'label_close'
   return null
+}
+
+function buildDefaultApplicationData() {
+  const packing = flow.value?.packing_list
+  return {
+    order_no: packing?.order_no || 'PL-2026-001',
+    machine_type: packing?.machine_type || 'MX-100',
+    label_type: 'Carton Label',
+    label_size: '50 x 30 mm',
+    quantity: 1200,
+    print_mode: 'Thermal transfer',
+    material: 'White PP',
+    barcode: 'BAR-2026-001',
+    customer: 'Amaranth Manufacturing',
+    remarks: 'Prepared for label printing and ready for next department review.',
+    created_by: session.user?.display_name || 'Label Room',
+  }
+}
+
+function seedApplicationData() {
+  const defaultData = buildDefaultApplicationData()
+  applicationData.value = JSON.stringify(defaultData, null, 2)
+}
+
+function ensureNextHandlerSelection() {
+  const [firstPerson] = people.value
+  if (nextHandlerId.value || !firstPerson) return
+  nextHandlerId.value = firstPerson.id
+}
+
+async function completeApplication() {
+  if (!applicationData.value.trim()) seedApplicationData()
+  ensureNextHandlerSelection()
+  await submitApplication()
 }
 
 async function submitApplication() {
@@ -390,6 +474,8 @@ watch(newModel, async (value) => {
   nextHandlerId.value = ''
   try {
     await loadUsers(value ? 'engineering' : 'qc')
+    const [firstPerson] = people.value
+    if (firstPerson) nextHandlerId.value = firstPerson.id
   } catch (error) {
     ElMessage.error(errorMessage(error))
   }
@@ -470,7 +556,7 @@ onMounted(loadData)
               <el-button v-if="activeTab === 'overview'" text type="primary" @click="activeTab = 'packing'">{{ t('dashboard.allFlows') }} →</el-button>
             </div>
           </div>
-          <el-table :data="activeTab === 'overview' ? packingLists.slice(0, 6) : packingLists" row-key="id" class="workflow-table" @row-click="openListRow">
+          <el-table :data="activeTab === 'overview' ? workbenchPackingLists.slice(0, 6) : workbenchPackingLists" row-key="id" class="workflow-table" @row-click="openListRow">
             <el-table-column prop="order_no" :label="t('packing.orderNo')" min-width="145">
               <template #default="scope"><span class="order-cell">{{ scope.row.order_no }}</span></template>
             </el-table-column>
@@ -481,11 +567,14 @@ onMounted(loadData)
             <el-table-column :label="t('packing.status')" width="145">
               <template #default="scope"><el-tag :type="scope.row.status === 'completed' ? 'success' : scope.row.status === 'rejected' ? 'danger' : 'warning'" effect="light">{{ statusLabel(scope.row.status) }}</el-tag></template>
             </el-table-column>
+            <el-table-column :label="t('packing.uploader')" min-width="120">
+              <template #default="scope">{{ userName(scope.row.uploader) }}</template>
+            </el-table-column>
             <el-table-column prop="created_at" :label="t('packing.createdAt')" min-width="170">
               <template #default="scope">{{ new Date(scope.row.created_at).toLocaleString() }}</template>
             </el-table-column>
             <el-table-column width="90" align="right">
-              <template #default="scope"><el-button text @click.stop="openFlow(scope.row.id)">{{ t('common.open') }}</el-button></template>
+              <template #default="scope"><el-button text @click.stop="openListRow(scope.row)">{{ t(scope.row.current_node === 'label_apply' ? 'labelApply.handle' : 'common.open') }}</el-button></template>
             </el-table-column>
             <template #empty><div class="empty-state">{{ t('common.noData') }}</div></template>
           </el-table>
@@ -539,8 +628,8 @@ onMounted(loadData)
         <el-form-item :label="t('packing.machineType')"><el-input v-model="uploadForm.machine_type" /></el-form-item>
       </div>
       <el-form-item :label="t('packing.file')">
-        <el-upload drag :auto-upload="false" :limit="1" :on-change="onFileChange" :on-remove="() => (selectedFile = null)">
-          <div class="upload-copy"><strong>{{ t('packing.file') }}</strong><span>{{ t('packing.fileTypes') }}</span></div>
+        <el-upload ref="uploadRef" drag accept=".jpg,.jpeg,.png,.doc,.docx,.pdf" :auto-upload="false" :limit="1" :before-upload="beforePackingUpload" :on-change="onFileChange" :on-remove="() => (selectedFile = null)">
+          <div class="upload-copy"><strong>{{ t('upload.uploadPackingList') }}</strong><span>JPG, JPEG, PNG, DOC, DOCX, PDF · 10MB</span></div>
         </el-upload>
       </el-form-item>
       <el-form-item :label="t('packing.labelHandler')">
@@ -563,6 +652,18 @@ onMounted(loadData)
         <div><span>{{ t('packing.createdAt') }}</span><strong>{{ new Date(flow.packing_list.created_at).toLocaleString() }}</strong></div>
         <div><span>{{ t('flow.current') }}</span><strong>{{ stageLabel(flow.current_node) }}</strong></div>
       </div>
+      <section class="flow-attachment-section">
+        <h3>{{ t('upload.packingList') }}</h3>
+        <FilePreview
+          :file-name="flow.packing_list.file_name || flow.packing_list.file.split('/').pop() || ''"
+          :file-url="flow.packing_list.file_url || flow.packing_list.file"
+          :file-type="flow.packing_list.file_type || ''"
+        />
+      </section>
+
+      <section v-if="flow.label_application" class="flow-attachment-section">
+        <LabelApplicationSummary :application="flow.label_application" />
+      </section>
 
       <section v-if="canActOnCurrentNode && flow.current_node === 'label_apply'" class="action-section">
         <div class="action-heading"><span class="stage-index">01</span><div><h3>{{ t('application.title') }}</h3><p>{{ t('department.label') }}</p></div></div>
@@ -574,7 +675,10 @@ onMounted(loadData)
             </el-select>
           </el-form-item>
           <el-form-item :label="t('application.formData')"><el-input v-model="applicationData" type="textarea" :rows="4" :placeholder="t('application.placeholder')" /></el-form-item>
-          <el-button type="primary" :loading="actionBusy" :disabled="!nextHandlerId" @click="submitApplication">{{ t('application.submit') }}</el-button>
+          <div class="action-buttons">
+            <el-button type="primary" :loading="actionBusy" :disabled="!nextHandlerId" @click="completeApplication">{{ t('application.complete') }}</el-button>
+            <el-button @click="seedApplicationData">{{ t('application.restore') }}</el-button>
+          </div>
         </el-form>
       </section>
 

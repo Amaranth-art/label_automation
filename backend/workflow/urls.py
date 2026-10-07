@@ -7,12 +7,14 @@ from .views import (
     PackingListListCreateView,
     PendingApprovalListView,
     SubmitLabelApplicationView,
+    UploadLabelSampleView,
 )
 
 urlpatterns = [
     path('packing-list/', PackingListListCreateView.as_view(), name='packing-list-list'),
     path('packing-list/<int:pk>/', PackingListDetailView.as_view(), name='packing-list-detail'),
     path('label-application/', SubmitLabelApplicationView.as_view(), name='label-application'),
+    path('label-application/upload-sample/', UploadLabelSampleView.as_view(), name='label-application-upload-sample'),
     path('approval/pending/', PendingApprovalListView.as_view(), name='approval-pending'),
     path('approval/<int:node_id>/approve/', ApprovalNodeActionView.as_view(), name='approval-approve'),
     path('approval/<int:node_id>/reject/', ApprovalNodeActionView.as_view(), name='approval-reject'),

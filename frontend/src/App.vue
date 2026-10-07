@@ -11,6 +11,9 @@ const route = useRoute()
 const router = useRouter()
 const session = useSessionStore()
 const isLogin = computed(() => route.name === 'login')
+const canOpenLabelApplication = computed(() => ['label', 'label_room'].includes(
+  session.user?.department?.code.toLowerCase() || '',
+))
 const passwordDialogVisible = ref(false)
 const passwordSubmitting = ref(false)
 const passwordForm = reactive({ old_password: '', new_password: '', confirm_password: '' })
@@ -115,6 +118,7 @@ async function submitPasswordChange() {
         <RouterLink to="/#overview" class="sidebar-link" :class="{ active: route.hash === '#overview' || !route.hash }">{{ t('nav.overview') }}</RouterLink>
         <RouterLink to="/#tasks" class="sidebar-link" :class="{ active: route.hash === '#tasks' }">{{ t('nav.tasks') }}</RouterLink>
         <RouterLink to="/#packing" class="sidebar-link" :class="{ active: route.hash === '#packing' }">{{ t('nav.packing') }}</RouterLink>
+        <RouterLink v-if="canOpenLabelApplication" to="/label-apply" class="sidebar-link" :class="{ active: route.name === 'label-apply' }">{{ t('nav.labelApply') }}</RouterLink>
         <template v-if="session.user?.is_staff">
           <span class="sidebar-label sidebar-label-lower">{{ t('nav.admin') }}</span>
           <RouterLink to="/#admin" class="sidebar-link" :class="{ active: route.hash === '#admin' }">{{ t('nav.admin') }}</RouterLink>

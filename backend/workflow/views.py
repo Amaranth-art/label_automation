@@ -1,11 +1,17 @@
+import os
+import uuid
+
 from django.contrib.auth import get_user_model
+from django.core.files.storage import default_storage
 from django.db import transaction
 from django.db.models import F, Q
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.translation import gettext_lazy as _
+from django.conf import settings
 from rest_framework import generics, permissions, status
 from rest_framework.exceptions import PermissionDenied, ValidationError
+from rest_framework.parsers import FormParser, MultiPartParser
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -28,6 +34,8 @@ NEXT_STAGE = {
     ApprovalNode.Stage.QC: ApprovalNode.Stage.IE,
     ApprovalNode.Stage.IE: ApprovalNode.Stage.LABEL_CLOSE,
 }
+LABEL_SAMPLE_EXTENSIONS = {".jpg", ".jpeg", ".png"}
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024
 
 
 def profile_for(user):
@@ -93,6 +101,49 @@ class PackingListDetailView(generics.RetrieveAPIView):
 class SubmitLabelApplicationView(generics.CreateAPIView):
     serializer_class = LabelApplicationSerializer
     permission_classes = (permissions.IsAuthenticated,)
+
+
+class UploadLabelSampleView(APIView):
+    permission_classes = (permissions.IsAuthenticated,)
+    parser_classes = (MultiPartParser, FormParser)
+
+    def post(self, request):
+        if not user_is_in_stage_department(request.user, ApprovalNode.Stage.LABEL_APPLY):
+            raise PermissionDenied(_("Only Label department users can upload sample images."))
+        if not ApprovalNode.objects.filter(
+            handler=request.user,
+            stage=ApprovalNode.Stage.LABEL_APPLY,
+            status=ApprovalNode.Status.PENDING,
+            flow__current_node=ApprovalNode.Stage.LABEL_APPLY,
+        ).exists():
+            raise PermissionDenied(_("No pending Label application task exists for this user."))
+
+        uploaded_files = request.FILES.getlist("files")
+        if not uploaded_files:
+            raise ValidationError({"files": _("Please upload at least one Label sample image")})
+
+        for uploaded_file in uploaded_files:
+            extension = os.path.splitext(uploaded_file.name)[1].lower()
+            if extension not in LABEL_SAMPLE_EXTENSIONS:
+                raise ValidationError({"files": _("Only jpg, jpeg, png are allowed")})
+            if uploaded_file.size > MAX_UPLOAD_SIZE:
+                raise ValidationError({"files": _("File size exceeds 10MB limit")})
+
+        saved_files = []
+        for uploaded_file in uploaded_files:
+            extension = os.path.splitext(uploaded_file.name)[1].lower()
+            relative_path = (
+                f"label-samples/{timezone.now():%Y/%m}/"
+                f"{uuid.uuid4().hex}{extension}"
+            )
+            saved_path = default_storage.save(relative_path, uploaded_file)
+            saved_files.append({
+                "path": saved_path,
+                "url": f"{settings.MEDIA_URL}{saved_path}",
+                "file_name": os.path.basename(saved_path),
+            })
+
+        return Response({"files": saved_files}, status=status.HTTP_201_CREATED)
 
 
 class PendingApprovalListView(generics.ListAPIView):

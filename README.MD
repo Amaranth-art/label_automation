@@ -6,6 +6,7 @@
 打开网页/登录系统	http://localhost:5173/login ✅
 测试后端 API	http://localhost:8000/api/
 Django 管理后台	http://localhost:8000/admin/
+http://192.168.20.164:5173/
 
 ## 环境说明（重要）
 - 后端：Django 6.1.1（不是 5.x，请用 6.1 语法）+ Django REST Framework + SimpleJWT
@@ -240,9 +241,11 @@ python -m venv .venv
 
 # 第4步：激活虚拟环境（换电脑需要）
 .venv\Scripts\activate          # 激活后命令行前面出现 (.venv)
-
+pip install django
 # 第5步：装依赖(换电脑需要)
+python -m pip install django djangorestframework djangorestframework-simplejwt django-cors-headers
 pip install django djangorestframework djangorestframework-simplejwt django-cors-headers
+python -m pip show django装完验证
 
 # 第6步：创建 Django 项目（注意最后有个点）
 django-admin startproject config .
@@ -258,8 +261,21 @@ db.sqlite3 ← 数据库
 .venv      ← 虚拟环境 -->
 
 # 临时切换node.js（当前终端生效）$env:PATH = "D:\LJX\node-v24;" + $env:PATH
-
+$env:PATH = "E:\program\node-v24.21.0-win-x64\node-v24.21.0-win-x64;$env:PATH"
 # 前端重新换电脑后
 
 cd 你的项目路径\label_automation\frontend
 npm install
+npm.cmd -v
+npm run dev
+
+npm.cmd -v
+npm.cmd install
+npm.cmd run dev
+
+
+Agent 改了 models.py 后，必须两步都做：
+
+powershell
+python manage.py makemigrations   # 生成迁移文件
+python manage.py migrate          # 执行到数据库

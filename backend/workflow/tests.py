@@ -1,6 +1,7 @@
+import tempfile
 from django.contrib.auth import get_user_model
 from django.core.files.uploadedfile import SimpleUploadedFile
-from django.test import TestCase
+from django.test import TestCase, override_settings
 from rest_framework.test import APIClient
 
 from accounts.models import Department, UserProfile
@@ -11,6 +12,9 @@ User = get_user_model()
 
 class ApprovalWorkflowApiTests(TestCase):
     def setUp(self):
+        self.media_directory = tempfile.TemporaryDirectory()
+        self.media_settings = override_settings(MEDIA_ROOT=self.media_directory.name)
+        self.media_settings.enable()
         self.departments = {
             code: Department.objects.create(name=name, name_zh=name_zh, code=code)
             for code, name, name_zh in (
@@ -26,6 +30,10 @@ class ApprovalWorkflowApiTests(TestCase):
             for code, department in self.departments.items()
         }
         self.client = APIClient()
+
+    def tearDown(self):
+        self.media_settings.disable()
+        self.media_directory.cleanup()
 
     def create_user(self, username, department):
         user = User.objects.create_user(username=username, password="test-password-123")
@@ -53,10 +61,26 @@ class ApprovalWorkflowApiTests(TestCase):
             format="multipart",
         )
         self.assertEqual(response.status_code, 201, response.data)
+        self.assertTrue(response.data["file_url"].startswith("/media/"))
+        self.assertFalse(response.data["file_url"].startswith("http"))
         return response.data["id"]
+
+    def upload_label_sample(self):
+        self.authenticate("label")
+        response = self.client.post(
+            "/api/label-application/upload-sample/",
+            {"files": SimpleUploadedFile("sample.png", b"png image bytes", content_type="image/png")},
+            format="multipart",
+        )
+        self.assertEqual(response.status_code, 201, response.data)
+        uploaded_file = response.data["files"][0]
+        self.assertEqual(uploaded_file["url"], f"/media/{uploaded_file['path']}")
+        self.assertFalse(uploaded_file["url"].startswith("http"))
+        return uploaded_file["path"]
 
     def test_new_model_flow_supports_rejection_and_label_resubmission(self):
         packing_list_id = self.upload_packing_list()
+        sample_path = self.upload_label_sample()
         self.authenticate("label")
         response = self.client.post(
             "/api/label-application/",
@@ -64,6 +88,7 @@ class ApprovalWorkflowApiTests(TestCase):
                 "packing_list": packing_list_id,
                 "is_new_model": True,
                 "form_data": {"label_size": "50x30"},
+                "label_sample_images": [sample_path],
                 "next_handler_id": self.users["engineering"].id,
             },
             format="json",
@@ -138,6 +163,108 @@ class ApprovalWorkflowApiTests(TestCase):
         self.assertEqual(flow.packing_list.status, "completed")
         self.assertEqual(LabelApplication.objects.get(packing_list_id=packing_list_id).form_data["label_size"], "50x30")
 
+    def test_label_application_accepts_form_payload_and_routes_by_print_type(self):
+        packing_list_id = self.upload_packing_list()
+        sample_path = self.upload_label_sample()
+        self.authenticate("label")
+        form_data = {
+            "print_type": "new_model",
+            "line": "A线",
+            "group_leader": "张三",
+            "printer": "李四",
+            "fields": {"machine_type": "M-100", "quantity": 100},
+            "remark": "更改说明",
+            "manufacturing_manager": "王五",
+        }
+        response = self.client.post(
+            "/api/label-application/",
+            {
+                "packing_list_id": packing_list_id,
+                "form_data": form_data,
+                "label_sample_images": [sample_path],
+                "next_handler_id": self.users["engineering"].id,
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        application = LabelApplication.objects.get(packing_list_id=packing_list_id)
+        self.assertEqual(application.form_data, form_data)
+        self.assertTrue(application.is_new_model)
+        self.assertEqual(ApprovalFlow.objects.get(packing_list_id=packing_list_id).current_node, "eng")
+
+        response = self.client.get(
+            f"/api/approval/flow/{ApprovalFlow.objects.get(packing_list_id=packing_list_id).id}/"
+        )
+        self.assertEqual(response.status_code, 200, response.data)
+        self.assertEqual(response.data["packing_list"]["file_name"], "packing.pdf")
+        self.assertTrue(response.data["packing_list"]["file_url"].startswith("/media/"))
+        self.assertFalse(response.data["packing_list"]["file_url"].startswith("http"))
+        self.assertTrue(response.data["packing_list"]["file_url"].endswith(".pdf"))
+        self.assertEqual(response.data["packing_list"]["file_type"], "pdf")
+        self.assertEqual(response.data["label_application"]["form_data"], form_data)
+        self.assertEqual(response.data["label_application"]["label_sample_images"][0]["path"], sample_path)
+        self.assertEqual(
+            response.data["label_application"]["label_sample_images"][0]["url"],
+            f"/media/{sample_path}",
+        )
+        self.assertEqual(response.data["label_application"]["applicant"]["id"], self.users["label"].id)
+
+    def test_packing_list_rejects_unsupported_extension_and_large_file(self):
+        self.authenticate("business")
+        for name, content, expected in (
+            ("packing.gif", b"image", "File format not supported"),
+            ("packing.pdf", b"x" * (10 * 1024 * 1024 + 1), "File size exceeds 10MB limit"),
+        ):
+            with self.subTest(name=name):
+                response = self.client.post(
+                    "/api/packing-list/",
+                    {
+                        "file": SimpleUploadedFile(name, content),
+                        "machine_type": "M-100",
+                        "order_no": f"ORDER-{name}",
+                        "label_handler_id": self.users["label"].id,
+                    },
+                    format="multipart",
+                    HTTP_ACCEPT_LANGUAGE="en",
+                )
+                self.assertEqual(response.status_code, 400)
+                self.assertIn(expected, str(response.data))
+
+    def test_label_sample_upload_requires_images_and_rejects_invalid_files(self):
+        packing_list_id = self.upload_packing_list()
+        self.authenticate("label")
+        empty_response = self.client.post("/api/label-application/upload-sample/", {}, format="multipart")
+        self.assertEqual(empty_response.status_code, 400)
+
+        invalid_response = self.client.post(
+            "/api/label-application/upload-sample/",
+            {"files": SimpleUploadedFile("sample.webp", b"image bytes")},
+            format="multipart",
+        )
+        self.assertEqual(invalid_response.status_code, 400)
+        self.assertIn("Only jpg, jpeg, png are allowed", str(invalid_response.data))
+
+        oversized_response = self.client.post(
+            "/api/label-application/upload-sample/",
+            {"files": SimpleUploadedFile("sample.jpg", b"x" * (10 * 1024 * 1024 + 1))},
+            format="multipart",
+        )
+        self.assertEqual(oversized_response.status_code, 400)
+        self.assertIn("File size exceeds 10MB limit", str(oversized_response.data))
+
+        missing_sample_response = self.client.post(
+            "/api/label-application/",
+            {
+                "packing_list_id": packing_list_id,
+                "form_data": {"print_type": "normal"},
+                "next_handler_id": self.users["qc"].id,
+            },
+            format="json",
+        )
+        self.assertEqual(missing_sample_response.status_code, 400)
+        self.assertIn("Please upload at least one Label sample image", str(missing_sample_response.data))
+
     def test_non_business_user_cannot_upload_packing_list(self):
         self.authenticate("qc")
         response = self.client.post(
@@ -189,6 +316,7 @@ class ApprovalWorkflowApiTests(TestCase):
         self.assertEqual([person["id"] for person in response.data], [qc_staff.id])
 
         packing_list_id = self.upload_packing_list()
+        sample_path = self.upload_label_sample()
         self.authenticate("label")
         response = self.client.post(
             "/api/label-application/",
@@ -196,6 +324,7 @@ class ApprovalWorkflowApiTests(TestCase):
                 "packing_list": packing_list_id,
                 "is_new_model": False,
                 "form_data": {},
+                "label_sample_images": [sample_path],
                 "next_handler_id": qc_staff.id,
             },
             format="json",

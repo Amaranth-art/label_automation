@@ -41,6 +41,7 @@ class LabelApplication(models.Model):
 	)
 	is_new_model = models.BooleanField(default=False)
 	form_data = models.JSONField(default=dict, blank=True)
+	label_sample_images = models.JSONField(default=list, blank=True)
 	created_at = models.DateTimeField(auto_now_add=True)
 
 	def __str__(self):
