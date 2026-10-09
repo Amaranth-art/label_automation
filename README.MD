@@ -252,6 +252,7 @@ django-admin startproject config .
 
 # 第7步：启动验证
 python manage.py runserver
+python manage.py runserver 0.0.0.0:8000                                
 
 accounts   ← 用户与部门
 workflow   ← 传签流程核心
